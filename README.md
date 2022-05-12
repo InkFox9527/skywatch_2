@@ -1,3 +1,17 @@
+## Step for use this tool
+
+1. prepare two linux envirements (Oracle VM 6.1.34, CentOS 8)
+2. make sure they can ping each other (Server: 192.168.0.111, Client: 192.168.0.114)
+3. install ftp client in client server (CentOS 8 : yum install ftp)(ftp-0.17-78.el8.x86_64)
+4. put the target file (01.txt ~ 03.txt) to ftp server
+5. execute with ./ftp in server
+6. 	[client] ftp 192.168.0.111 8021 (Fixed port: 8021)
+	[client] usernames (Valid usernames : "ftp","anonymous","public","anon","test","foo","siim")
+	[client] password (None)
+	[client] get *.txt
+	[client] put *.txt
+
+========================================================================
 # Simple ftp server
 
 
