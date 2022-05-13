@@ -1,6 +1,8 @@
 #include "common.h"
 #ifndef sendfile
 #define BUF_SIZE 8192
+typedef enum { false, true }bool;  
+
 ssize_t sendfile(int out_fd, int in_fd, off_t * offset, size_t count )
 {
     off_t orig;
@@ -51,6 +53,27 @@ ssize_t sendfile(int out_fd, int in_fd, off_t * offset, size_t count )
 }
 #endif
 
+bool isMatch(char * s, char * p){
+    const char* star=NULL;
+    const char* ss=s;
+    while (*s){
+        //advancing both pointers when (both characters match) or ('?' found in pattern)
+        //note that *p will not advance beyond its length 
+        if ((*p=='?')||(*p==*s)){s++;p++;continue;} 
+        // * found in pattern, track index of *, only advancing pattern pointer 
+        if (*p=='*'){star=p++; ss=s;continue;} 
+        //current characters didn't match, last pattern pointer was *, current pattern pointer is not *
+        //only advancing pattern pointer
+        if (star){ p = star+1; s=++ss;continue;} 
+        //current pattern pointer is not star, last patter pointer was not *
+        //characters do not match
+        return false;
+    }
+    //check for remaining characters in pattern
+    while (*p=='*'){p++;}
+    return !*p;
+}
+
 /**
  * Generates response message for client
  * @param cmd Current command
@@ -63,6 +86,7 @@ void response(Command *cmd, State *state)
     case PASS: ftp_pass(cmd,state); break;
     case PASV: ftp_pasv(cmd,state); break;
     case LIST: ftp_list(cmd,state); break;
+    case NLST: ftp_nlst(cmd,state); break;
     case CWD:  ftp_cwd(cmd,state); break;
     case PWD:  ftp_pwd(cmd,state); break;
     case MKD:  ftp_mkd(cmd,state); break;
@@ -163,6 +187,8 @@ void ftp_list(Command *cmd, State *state)
 
     /* TODO: dynamic buffering maybe? */
     char cwd[BSIZE], cwd_orig[BSIZE];
+    char *ret = NULL;
+    int char_distance = 0;
     memset(cwd,0,BSIZE);
     memset(cwd_orig,0,BSIZE);
     
@@ -171,10 +197,29 @@ void ftp_list(Command *cmd, State *state)
     
     /* Just chdir to specified path */
     if(strlen(cmd->arg)>0&&cmd->arg[0]!='-'){
-      chdir(cmd->arg);
+      // printf("cmd->arg : %s\n",cmd->arg);
+      // chdir(cmd->arg);
+      ret=strrchr(cmd->arg,'/');
+      printf("the last / memory locate : %x\n",ret);
+      printf("the cmd->arg memory locate : %x\n",&(cmd->arg));
+      if(ret)
+      {
+        char_distance = ret - &(cmd->arg[0]);
+        printf("char_distance : %d\n",char_distance);
+        if (char_distance <= 0)
+            chdir(cmd->arg);
+        else
+        {
+            strncpy(cwd, cmd->arg, char_distance);
+            printf("target folder path : %s\n",cwd);
+            chdir(cwd);
+        }
+      }
     }
     
     getcwd(cwd,BSIZE);
+    if (strcmp(cwd_orig, cwd)==0)
+        printf("%s is not a valid path, change dir fail.\n", cmd->arg);
     DIR *dp = opendir(cwd);
 
     if(!dp){
@@ -230,6 +275,94 @@ void ftp_list(Command *cmd, State *state)
   write_state(state);
 }
 
+/** NLST command */
+void ftp_nlst(Command *cmd, State *state)
+{
+  if(state->logged_in==1){
+    struct dirent *entry;
+    struct stat statbuf;
+    struct tm *time;
+    char timebuff[80], current_dir[BSIZE];
+    int connection;
+    time_t rawtime;
+
+    /* TODO: dynamic buffering maybe? */
+    char cwd[BSIZE], cwd_orig[BSIZE];
+    char *ret = NULL;
+    char *file_path = NULL;
+    int char_distance = 0;
+    memset(cwd,0,BSIZE);
+    memset(cwd_orig,0,BSIZE);
+    
+    /* Later we want to go to the original path */
+    getcwd(cwd_orig,BSIZE);
+    
+    /* Just chdir to specified path */
+    if(strlen(cmd->arg)>0&&cmd->arg[0]!='-'){
+        ret=strrchr(cmd->arg,'/');
+        printf("the last / memory locate : %x\n",ret);
+        printf("the cmd->arg memory locate : %x\n",&(cmd->arg));
+        if(ret)
+        {
+            char_distance = ret - &(cmd->arg[0]);
+            printf("char_distance : %d\n",char_distance);
+            if (char_distance > 0)
+            {
+                strncpy(cwd, cmd->arg, char_distance+1);
+                printf("target folder path : %s\n",cwd);
+                file_path = ret + 1;
+                chdir(cwd);
+            }
+        }
+        else
+            file_path = &(cmd->arg[0]);
+    }
+    
+    getcwd(cwd,BSIZE);
+    if (strcmp(cwd_orig, cwd)==0)
+        printf("%s is not a valid path, change dir fail.\n", cmd->arg);
+    DIR *dp = opendir(cwd);
+
+    if(!dp){
+      state->message = "550 Failed to open directory.\n";
+    }else{
+      if(state->mode == SERVER){
+
+        connection = accept_connection(state->sock_pasv);
+        state->message = "150 Here comes the directory listing.\n";
+        puts(state->message);
+
+        while(entry=readdir(dp)){
+          if(stat(entry->d_name,&statbuf)==-1){
+            fprintf(stderr, "FTP: Error reading file stats...\n");
+          }else{
+            if ( isMatch(entry->d_name, file_path) )
+            {
+                printf("%s/%s\r\n",cwd,entry->d_name);
+                dprintf(connection,"%s/%s\r\n",cwd,entry->d_name);
+            }
+          }
+        }
+        write_state(state);
+        state->message = "226 Directory send OK.\n";
+        state->mode = NORMAL;
+        close(connection);
+        close(state->sock_pasv);
+
+      }else if(state->mode == CLIENT){
+        state->message = "502 Command not implemented.\n";
+      }else{
+        state->message = "425 Use PASV or PORT first.\n";
+      }
+    }
+    closedir(dp);
+    chdir(cwd_orig);
+  }else{
+    state->message = "530 Please login with USER and PASS.\n";
+  }
+  state->mode = NORMAL;
+  write_state(state);
+}
 
 /** QUIT command */
 void ftp_quit(State *state)
