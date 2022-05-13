@@ -12,6 +12,8 @@
 	5. [client] password (None)
 	6. [client] mget /tmp/skywatch_2/*.txt (will copy muti file from remote to local at the same file path)
 
+#refference leet code 44
+
 ========================================================================
 # Simple ftp server
 
