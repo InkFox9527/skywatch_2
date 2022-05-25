@@ -54,24 +54,24 @@ ssize_t sendfile(int out_fd, int in_fd, off_t * offset, size_t count )
 #endif
 
 bool isMatch(char * s, char * p){
-    const char* star=NULL;
-    const char* ss=s;
-    while (*s){
-        //advancing both pointers when (both characters match) or ('?' found in pattern)
-        //note that *p will not advance beyond its length 
-        if ((*p=='?')||(*p==*s)){s++;p++;continue;} 
-        // * found in pattern, track index of *, only advancing pattern pointer 
-        if (*p=='*'){star=p++; ss=s;continue;} 
-        //current characters didn't match, last pattern pointer was *, current pattern pointer is not *
-        //only advancing pattern pointer
-        if (star){ p = star+1; s=++ss;continue;} 
-        //current pattern pointer is not star, last patter pointer was not *
-        //characters do not match
-        return false;
-    }
-    //check for remaining characters in pattern
-    while (*p=='*'){p++;}
-    return !*p;
+  const char* star=NULL;
+  const char* ss=s;
+  while (*s){
+    //advancing both pointers when (both characters match) or ('?' found in pattern)
+    //note that *p will not advance beyond its length 
+    if ((*p=='?')||(*p==*s)){s++;p++;continue;} 
+    // * found in pattern, track index of *, only advancing pattern pointer 
+    if (*p=='*'){star=p++; ss=s;continue;} 
+    //current characters didn't match, last pattern pointer was *, current pattern pointer is not *
+    //only advancing pattern pointer
+    if (star){ p = star+1; s=++ss;continue;} 
+    //current pattern pointer is not star, last patter pointer was not *
+    //characters do not match
+    return false;
+  }
+  //check for remaining characters in pattern
+  while (*p=='*'){p++;}
+  return !*p;
 }
 
 /**
@@ -336,8 +336,7 @@ void ftp_nlst(Command *cmd, State *state)
           if(stat(entry->d_name,&statbuf)==-1){
             fprintf(stderr, "FTP: Error reading file stats...\n");
           }else{
-            if ( isMatch(entry->d_name, file_path) )
-            {
+            if(isMatch(entry->d_name,file_path)){
                 printf("%s/%s\r\n",cwd,entry->d_name);
                 dprintf(connection,"%s/%s\r\n",cwd,entry->d_name);
             }
@@ -455,37 +454,62 @@ void ftp_retr(Command *cmd, State *state)
 
   if(fork()==0){
     int connection;
-    int fd;
     struct stat stat_buf;
     off_t offset = 0;
     int sent_total = 0;
+    char cwd[BSIZE];
+    memset(cwd,0,BSIZE);
+    
     if(state->logged_in){
-
+      
       /* Passive mode */
       if(state->mode == SERVER){
-        if(access(cmd->arg,R_OK)==0 && (fd = open(cmd->arg,O_RDONLY))){
-          fstat(fd,&stat_buf);
-          
-          state->message = "150 Opening BINARY mode data connection.\n";
-          
-          write_state(state);
-          
-          connection = accept_connection(state->sock_pasv);
-          close(state->sock_pasv);
-          if(sent_total = sendfile(connection, fd, &offset, stat_buf.st_size)){
-            
-            if(sent_total != stat_buf.st_size){
-              perror("ftp_retr:sendfile");
-              exit(EXIT_SUCCESS);
-            }
-
-            state->message = "226 File send OK.\n";
-          }else{
-            state->message = "550 Failed to read file.\n";
-          }
-        }else{
-          state->message = "550 Failed to get file\n";
+        
+        /* find how many files match wildcard */
+        struct dirent *entry;
+        int matchFiles=0;
+        getcwd(cwd,BSIZE);
+        DIR *dp = opendir(cwd);
+        while(entry=readdir(dp)){
+          if(isMatch(entry->d_name,cmd->arg))
+            matchFiles++;
         }
+        closedir(dp);
+
+        int *fdList = (int*) malloc(matchFiles * sizeof(int));
+        int match_count=0;
+        dp = opendir(cwd);
+        connection = accept_connection(state->sock_pasv);
+        
+        while(entry=readdir(dp)){
+          if(isMatch(entry->d_name,cmd->arg)){
+            fdList[match_count] = open(entry->d_name,O_RDONLY);
+            
+            if(access(entry->d_name,R_OK)==0 && (fdList[match_count])){
+              fstat(fdList[match_count],&stat_buf);
+              
+              state->message = "150 Opening BINARY mode data connection.\n";
+          
+              write_state(state);
+              printf("send %s content to connection.\n",entry->d_name);
+              if(sent_total = sendfile(connection, fdList[match_count], &offset, stat_buf.st_size)){
+                if(sent_total != stat_buf.st_size){
+                  perror("ftp_retr:sendfile");
+                  exit(EXIT_SUCCESS);
+                }
+                state->message = "226 File send OK.\n";
+              }else{
+                state->message = "550 Failed to read file.\n";
+              }
+            }
+            offset=0;
+            close(fdList[match_count]);
+            match_count++;
+          }
+        }
+        free(fdList);
+        close(connection);
+        closedir(dp);
       }else{
         state->message = "550 Please use PASV instead of PORT.\n";
       }
@@ -493,7 +517,6 @@ void ftp_retr(Command *cmd, State *state)
       state->message = "530 Please login with USER and PASS.\n";
     }
 
-    close(fd);
     close(connection);
     write_state(state);
     exit(EXIT_SUCCESS);

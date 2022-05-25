@@ -1,3 +1,22 @@
+## Step for use this tool 2
+
+1. prepare two linux envirements (Oracle VM 6.1.34, CentOS 8)
+2. make sure they can ping each other (Server: 192.168.0.111, Client: 192.168.0.114)
+3. put the target file (01.txt ~ 03.txt) to ftp server with execute file at the same folder(01~03.txt)
+4. execute with ./ftp in server
+5. key in command in client 
+# telnet 192.168.0.111 8021
+# USER test
+# PASS
+# PASV
+6. get the info "227 Entering Passive Mode (192,168,0,111,128,117)", then open the 2nd client tty and connect to server.
+   The port number is 128 * 256 + 117
+# telnet 192.168.0.111 32885
+7. Back to orign client tty then key in
+# RETR *.txt
+8. Will get file contents in 2nd client tty.
+
+========================================================================
 ## Step for use this tool
 
 1. prepare two linux envirements (Oracle VM 6.1.34, CentOS 8)
