@@ -476,11 +476,15 @@ void ftp_retr(Command *cmd, State *state)
         }
         closedir(dp);
 
+        /* make fd list */
         int *fdList = (int*) malloc(matchFiles * sizeof(int));
         int match_count=0;
         dp = opendir(cwd);
+        
+        /* open connection to connect socket */
         connection = accept_connection(state->sock_pasv);
         
+        /* list current dir and find the file which match wildcard */
         while(entry=readdir(dp)){
           if(isMatch(entry->d_name,cmd->arg)){
             fdList[match_count] = open(entry->d_name,O_RDONLY);
@@ -534,8 +538,23 @@ void ftp_stor(Command *cmd, State *state)
     int pipefd[2];
     int res = 1;
     const int buff_size = 8192;
+    struct dirent *entry;
+    FILE *fp = NULL;
+    char cwd[BSIZE];
+    memset(cwd,0,BSIZE);
+    
+    getcwd(cwd,BSIZE);
+    DIR *dp = opendir(cwd);
+    while(entry=readdir(dp)){
+      if(isMatch(entry->d_name,cmd->arg)){
+         fp = fopen(entry->d_name,"w");
+         break;
+      }
+    }
+    closedir(dp);
 
-    FILE *fp = fopen(cmd->arg,"w");
+    if(fp==NULL)
+      fp = fopen(cmd->arg,"w");
 
     if(fp==NULL){
       /* TODO: write status message here! */

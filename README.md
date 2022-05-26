@@ -16,6 +16,9 @@
 # RETR *.txt
 8. Will get file contents in 2nd client tty.
 
+9. STOR support wildcard to find out the first file which match the pattern.
+   And cover the content. Not support multiple files transfer. 
+
 ========================================================================
 ## Step for use this tool
 
